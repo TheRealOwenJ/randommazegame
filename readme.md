@@ -1,7 +1,9 @@
-Its a small but fun maze game written in HTML,
-Things that are coming:
-Auto-scaling Minimap
-Instead of choosing rays you will choose quality
-Better UI
-I dont really care if you steal it tbh.
+its a small but fun maze game written in HTML.  
+things coming soon:  
+- auto-scaling minimap  
+- choose quality instead of rays  
+- better UI  
+
+i dont really care if you steal it, tbh.  
+
 link: https://randommazegame.netlify.app
