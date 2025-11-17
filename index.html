@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>random maze game</title>
+<style>
+  body { margin:0; overflow:hidden; background:#111; font-family:sans-serif; }
+  canvas { display:block; }
+  #menu {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    background:#111; color:#0f0;
+    display:flex; flex-direction:column;
+    justify-content:center; align-items:center;
+  }
+  #menu h1 { font-size:48px; margin:0; text-transform:lowercase; }
+  #menu button {
+    font-size:24px; padding:10px 20px; margin-top:20px;
+    background:#222; color:#0f0; border:none; cursor:pointer;
+  }
+  #menu button:hover { background:#0f0; color:#222; }
+  #menu .input-group {
+    margin: 10px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #menu label {
+    font-size: 20px;
+    margin-bottom: 5px;
+  }
+  #menu input {
+    font-size: 18px;
+    padding: 5px;
+    width: 100px;
+    text-align: center;
+    background: #222;
+    color: #0f0;
+    border: 1px solid #0f0;
+  }
+</style>
+</head>
+<body>
+<div id="menu">
+  <h1>random maze game</h1>
+  <div class="input-group">
+    <label for="mazeSize">Maze Size</label>
+    <input type="number" id="mazeSize" value="40" min="10" max="100">
+  </div>
+  <div class="input-group">
+    <label for="minimapScale">Minimap Scale</label>
+    <input type="number" id="minimapScale" value="0.2" min="0.1" max="0.5" step="0.05">
+  </div>
+  <div class="input-group">
+    <label for="numRays">Rays</label>
+    <input type="number" id="numRays" value="4800" min="100" max="10000" step="100">
+  </div>
+  <button id="startBtn">start</button>
+</div>
+<canvas id="game"></canvas>
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+const TILE_SIZE = 32;
+const FOV = Math.PI/3;
+let MAP_SIZE;
+let MINIMAP_SCALE;
+let NUM_RAYS;
+let MAX_DEPTH;
+let MAZE;
+let player;
+let keys = {};
+document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+canvas.addEventListener('click', () => { canvas.requestPointerLock(); });
+document.addEventListener('pointerlockchange', () => {
+    if(document.pointerLockElement === canvas){
+        document.addEventListener('mousemove', onMouseMove, false);
+    } else {
+        document.removeEventListener('mousemove', onMouseMove, false);
+    }
+});
+function onMouseMove(e) {
+    const sensitivity = 0.0025;
+    player.angle += e.movementX * sensitivity;
+    player.pitch -= e.movementY * sensitivity * 1.5;
+    if (player.pitch > Math.PI / 2) player.pitch = Math.PI / 2;
+    if (player.pitch < -Math.PI / 2) player.pitch = -Math.PI / 2;
+}
+function generateMaze(size){
+    const maze = Array.from({length:size},()=>Array(size).fill(1));
+    function carve(x,y){
+        const dirs = [[2,0],[-2,0],[0,2],[0,-2]];
+        dirs.sort(()=>Math.random()-0.5);
+        for(const [dx,dy] of dirs){
+            const nx = x+dx, ny=y+dy;
+            if(nx>0 && nx<size-1 && ny>0 && ny<size-1 && maze[ny][nx]==1){
+                maze[ny][nx]=0;
+                maze[y+dy/2|0][x+dx/2|0]=0;
+                carve(nx,ny);
+            }
+        }
+    }
+    maze[1][1]=0;
+    carve(1,1);
+    const possible = [];
+    for(let y=1;y<size-1;y++){
+        for(let x=1;x<size-1;x++){
+            if(maze[y][x]==0 && !(x==1 && y==1)) possible.push([x,y]);
+        }
+    }
+    const [ex,ey] = possible[Math.floor(Math.random()*possible.length)];
+    maze[ey][ex]='E';
+    return maze;
+}
+function initGame(){
+    MAP_SIZE = parseInt(document.getElementById("mazeSize").value);
+    MINIMAP_SCALE = parseFloat(document.getElementById("minimapScale").value);
+    NUM_RAYS = parseInt(document.getElementById("numRays").value);
+    MAX_DEPTH = MAP_SIZE * TILE_SIZE;
+    MAZE = generateMaze(MAP_SIZE);
+    player = {x:1.5*TILE_SIZE, y:1.5*TILE_SIZE, angle:0, pitch:0};
+    document.getElementById("menu").style.display = "none";
+    loop();
+}
+function castRays(){
+    const rays=[];
+    const startAngle = player.angle - FOV/2;
+    for(let i=0;i<NUM_RAYS;i++){
+        const angle = startAngle + i*FOV/NUM_RAYS;
+        const sin = Math.sin(angle);
+        const cos = Math.cos(angle);
+        let depth=0;
+        while(depth<MAX_DEPTH){
+            depth+=1;
+            const x = player.x + depth*cos;
+            const y = player.y + depth*sin;
+            const mx = Math.floor(x/TILE_SIZE);
+            const my = Math.floor(y/TILE_SIZE);
+            if(mx>=0 && mx<MAP_SIZE && my>=0 && my<MAP_SIZE){
+                const cell = MAZE[my][mx];
+                if(cell==1 || cell=='E'){
+                    const corrected = depth*Math.cos(player.angle - angle);
+                    rays.push({i, depth:corrected, cell});
+                    break;
+                }
+            }
+        }
+    }
+    return rays;
+}
+function draw3D(rays) {
+    const pitchOffset = player.pitch * HEIGHT / 2;
+    ctx.fillStyle = 'skyblue';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT / 2 + pitchOffset);
+    ctx.fillStyle = 'green';
+    ctx.fillRect(0, HEIGHT / 2 + pitchOffset, WIDTH, HEIGHT / 2 - pitchOffset);
+    const rayWidth = WIDTH / NUM_RAYS;
+    for (const r of rays) {
+        const h = 40000 / (r.depth + 0.001);
+        const shade = r.cell == 1 ? 255 / (1 + 0.005 * r.depth) : 0;
+        ctx.fillStyle = r.cell == 1 ? `rgb(${shade},${shade},${shade})` : 'lime';
+        ctx.fillRect(r.i * rayWidth, HEIGHT / 2 - h / 2 + pitchOffset, rayWidth + 1, h);
+    }
+}
+function drawMinimap(){
+    const scale = MINIMAP_SCALE;
+    ctx.fillStyle = "rgba(30,30,30,0.7)";
+    ctx.fillRect(10, 10, MAP_SIZE*TILE_SIZE*scale, MAP_SIZE*TILE_SIZE*scale);
+
+    // Draw exit
+    for (let y = 0; y < MAP_SIZE; y++) {
+        for (let x = 0; x < MAP_SIZE; x++) {
+            if (MAZE[y][x] === 'E') {
+                ctx.fillStyle = '#00FF00';
+                ctx.fillRect(10 + x*TILE_SIZE*scale, 10 + y*TILE_SIZE*scale, TILE_SIZE*scale, TILE_SIZE*scale);
+            }
+        }
+    }
+
+    // Draw player
+    const px = 10 + player.x * scale;
+    const py = 10 + player.y * scale;
+    const size = 6;
+    ctx.fillStyle = "red";
+    ctx.beginPath();
+    ctx.moveTo(px + Math.cos(player.angle)*size, py + Math.sin(player.angle)*size);
+    ctx.lineTo(px + Math.cos(player.angle+2.5)*size, py + Math.sin(player.angle+2.5)*size);
+    ctx.lineTo(px + Math.cos(player.angle-2.5)*size, py + Math.sin(player.angle-2.5)*size);
+    ctx.closePath();
+    ctx.fill();
+}
+function loop(){
+    const speed = 2;
+    let dx = Math.cos(player.angle) * speed;
+    let dy = Math.sin(player.angle) * speed;
+    const moveKeys = ['w','s','a','d','arrowup','arrowdown','arrowleft','arrowright'];
+    moveKeys.forEach(k => { if(keys[k]===undefined) keys[k]=false; });
+    if(keys['w'] || keys['arrowup']){
+        const nx = player.x + dx, ny = player.y + dy;
+        if(MAZE[Math.floor(player.y/TILE_SIZE)][Math.floor(nx/TILE_SIZE)] != 1) player.x = nx;
+        if(MAZE[Math.floor(ny/TILE_SIZE)][Math.floor(player.x/TILE_SIZE)] != 1) player.y = ny;
+    }
+    if(keys['s'] || keys['arrowdown']){
+        const nx = player.x - dx, ny = player.y - dy;
+        if(MAZE[Math.floor(player.y/TILE_SIZE)][Math.floor(nx/TILE_SIZE)] != 1) player.x = nx;
+        if(MAZE[Math.floor(ny/TILE_SIZE)][Math.floor(player.x/TILE_SIZE)] != 1) player.y = ny;
+    }
+    // Rotation with arrow keys
+    const rotateSpeed = 0.05;
+    if(keys['arrowleft']){
+        player.angle -= rotateSpeed;
+    }
+    if(keys['arrowright']){
+        player.angle += rotateSpeed;
+    }
+    // Strafing with A/D
+    const strafeSpeed = 1;
+    if(keys['a']){
+        const nx = player.x + Math.sin(player.angle) * strafeSpeed;
+        const ny = player.y - Math.cos(player.angle) * strafeSpeed;
+        if(MAZE[Math.floor(player.y/TILE_SIZE)][Math.floor(nx/TILE_SIZE)] != 1) player.x = nx;
+        if(MAZE[Math.floor(ny/TILE_SIZE)][Math.floor(player.x/TILE_SIZE)] != 1) player.y = ny;
+    }
+    if(keys['d']){
+        const nx = player.x - Math.sin(player.angle) * strafeSpeed;
+        const ny = player.y + Math.cos(player.angle) * strafeSpeed;
+        if(MAZE[Math.floor(player.y/TILE_SIZE)][Math.floor(nx/TILE_SIZE)] != 1) player.x = nx;
+        if(MAZE[Math.floor(ny/TILE_SIZE)][Math.floor(player.x/TILE_SIZE)] != 1) player.y = ny;
+    }
+    ctx.clearRect(0,0,WIDTH,HEIGHT);
+    const rays = castRays();
+    draw3D(rays);
+    drawMinimap();
+    const ex = Math.floor(player.x/TILE_SIZE);
+    const ey = Math.floor(player.y/TILE_SIZE);
+    if(MAZE[ey][ex]=='E'){
+        ctx.fillStyle='yellow';
+        ctx.font='80px sans-serif';
+        ctx.fillText('Maze Solved!', WIDTH/2-200, HEIGHT/2);
+    } else requestAnimationFrame(loop);
+}
+document.getElementById("startBtn").addEventListener("click", initGame);
+</script>
+</body>
+</html>
